@@ -1451,8 +1451,7 @@
       renderQrCode(STATE.secretKey);
       startTotpTicker();
       joinWsPairRoom();
-      connectMqtt();
-      syncModeBTotpTopics();
+      // connectMqtt 统一由 start() 在初始化流程末尾调用，避免重复连接销毁第一次 client
     }
     updatePairTabUI();
     updateDualDeviceStatus();
@@ -1482,7 +1481,7 @@
     renderQrCode(key);
     startTotpTicker();
     joinWsPairRoom();
-    connectMqtt();
+    // connectMqtt 统一由 start() 或 switchRole() 调用，避免重复销毁连接
     updatePairTabUI();
     updateDualDeviceStatus();
     updateBoundDeviceUI();
@@ -2283,7 +2282,7 @@
               else if (targetCode === codeNext) matchedCode = codeNext;
 
               if (matchedCode) {
-                const hash = (await sha256Hex('ln_totp_' + matchedCode)).slice(0, 16);
+                const hash = (await sha256Hex('ln_totp_' + targetCode)).slice(0, 16);
                 const resTopic = 'linknotify/v1/totp/res/' + hash;
                 const payload = {
                   type: 'pair_res',
@@ -2292,7 +2291,10 @@
                   deviceName: getLocalDeviceInfo(),
                   timestamp: Date.now()
                 };
-                const encrypted = await encryptPayload(payload, matchedCode);
+                // 关键修复：用 A 端发送的原始 targetCode 加密，而非 matchedCode
+                // 当时钟偏差导致 matchedCode 是 codePrev/codeNext 时，
+                // A 端只知道自己发送的 code，用它解密
+                const encrypted = await encryptPayload(payload, targetCode);
                 client.publish(resTopic, encrypted, { qos: 1 });
                 console.log('[MQTT] 成功响应配对请求并同步密钥, code:', matchedCode);
               }
@@ -2323,7 +2325,8 @@
               updateDualDeviceStatus();
               updatePairTabUI();
 
-              if (STATE.role === 'A' && decrypted.role === 'B' && decrypted.reply !== false) {
+              // 双向握手：无论 A 端还是 B 端收到对端心跳，立即回传自身状态，实现秒级连接反馈
+              if (decrypted.reply !== false) {
                 sendHeartbeatPing(false);
               }
             }

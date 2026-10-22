@@ -95,10 +95,7 @@ class MainActivity : AppCompatActivity() {
             registerReceiver(notificationReceiver, filter)
         }
 
-        // 检查并请求相机权限以支持扫码绑定
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA), 101)
-        }
+        // 相机权限延迟到用户主动点击扫码按钮时再请求，避免一进 App 就弹出权限对话框
 
         // 使用安全上下文加载本地打包的 Liquid-Glass 工作台 (全面解锁 WebRTC 相机及 WebCrypto 特性)
         webView.loadUrl("https://appassets.androidplatform.net/assets/web/index.html")
@@ -115,7 +112,7 @@ class MainActivity : AppCompatActivity() {
         settings.domStorageEnabled = true
         settings.databaseEnabled = true
         settings.allowFileAccess = true
-        settings.mediaPlaybackRequiresUserGesture = false
+        settings.mediaPlaybackRequiresUserGesture = true
         settings.cacheMode = WebSettings.LOAD_DEFAULT
         settings.useWideViewPort = true
         settings.loadWithOverviewMode = true
