@@ -1,8 +1,63 @@
+const crypto = require('crypto');
 const http = require('http');
 const path = require('path');
 const express = require('express');
 const cors = require('cors');
 const { WebSocketServer, WebSocket } = require('ws');
+
+// RFC 6238 TOTP Helpers
+const BASE32_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+
+function base32ToBytes(base32) {
+  const clean = String(base32 || '').toUpperCase().replace(/[\s-]/g, '');
+  let bits = '';
+  for (let i = 0; i < clean.length; i++) {
+    const val = BASE32_CHARS.indexOf(clean[i]);
+    if (val === -1) continue;
+    bits += val.toString(2).padStart(5, '0');
+  }
+  const bytes = Buffer.alloc(Math.floor(bits.length / 8));
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = parseInt(bits.substr(i * 8, 8), 2);
+  }
+  return bytes;
+}
+
+function computeTotp(secretKey, timeStepOffset = 0) {
+  try {
+    const step = 30;
+    const epoch = Math.floor(Date.now() / 1000);
+    const counter = Math.floor(epoch / step) + timeStepOffset;
+
+    const buffer = Buffer.alloc(8);
+    buffer.writeBigInt64BE(BigInt(counter));
+
+    const keyBytes = base32ToBytes(secretKey);
+    const hmac = crypto.createHmac('sha1', keyBytes).update(buffer).digest();
+
+    const offset = hmac[hmac.length - 1] & 0x0f;
+    const binary =
+      ((hmac[offset] & 0x7f) << 24) |
+      ((hmac[offset + 1] & 0xff) << 16) |
+      ((hmac[offset + 2] & 0xff) << 8) |
+      (hmac[offset + 3] & 0xff);
+
+    return (binary % 1000000).toString().padStart(6, '0');
+  } catch (e) {
+    return null;
+  }
+}
+
+function verifyTotp(secretKey, inputCode) {
+  const clean = String(inputCode || '').trim();
+  if (clean.length !== 6) return false;
+  for (const offset of [0, -1, 1]) {
+    if (computeTotp(secretKey, offset) === clean) {
+      return true;
+    }
+  }
+  return false;
+}
 
 const NotificationStore = require('./notificationStore');
 const TaskManager = require('./taskManager');
@@ -21,6 +76,12 @@ const deviceManager = new DeviceManager();
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use((err, req, res, next) => {
+  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+    return res.status(400).json({ ok: false, error: '无效的 JSON 请求体' });
+  }
+  next();
+});
 
 // 托管前端静态资源
 const publicPath = path.join(__dirname, '..', '..', 'public');
@@ -191,6 +252,14 @@ app.post('/api/tasks/run', (req, res) => {
     return res.status(400).json({ ok: false, error: 'command 不能为空' });
   }
 
+  // 安全防御：非本机 IP 必须携带房间内已配对的合法 x-pair-code，杜绝局域网未授权设备盲执行命令
+  const clientIp = req.ip || req.socket.remoteAddress || '';
+  const isLocal = clientIp === '127.0.0.1' || clientIp === '::1' || clientIp.includes('127.0.0.1');
+  const reqPairCode = req.headers['x-pair-code'] || req.body.pairCode;
+  if (!isLocal && (!reqPairCode || !pairRooms.has(reqPairCode))) {
+    return res.status(403).json({ ok: false, error: '未授权：非本机执行系统命令必须提供已配对的配对码 (Header: x-pair-code)' });
+  }
+
   try {
     const task = taskManager.runTask({
       command: command.trim(),
@@ -226,11 +295,160 @@ app.post('/api/tasks/:id/restart', (req, res) => {
   }
 });
 
+// 配对房间管理: pairCode -> Map<clientId, { ws, role, deviceName, battery, isCharging, signalDbm, permission, lastSeen }>
+const pairRooms = new Map();
+const socketToClient = new Map(); // ws -> clientId
+const clientMeta = new Map();     // clientId -> { ws, pairCode, role, ... }
+
+function getRoomClients(pairCode) {
+  if (!pairRooms.has(pairCode)) {
+    pairRooms.set(pairCode, new Map());
+  }
+  return pairRooms.get(pairCode);
+}
+
+function broadcastToRoom(pairCode, event, data, excludeWs = null) {
+  if (!pairCode || !pairRooms.has(pairCode)) return;
+  const room = pairRooms.get(pairCode);
+  const payload = JSON.stringify({ event, data, timestamp: Date.now() });
+  for (const [, peer] of room) {
+    if (peer.ws !== excludeWs && peer.ws.readyState === WebSocket.OPEN) {
+      try {
+        peer.ws.send(payload);
+      } catch (err) {
+        console.error('[WS-Room] 发送失败:', err.message);
+      }
+    }
+  }
+}
+
+// 检查配对码状态
+app.get('/api/pair/status/:code', (req, res) => {
+  const code = req.params.code;
+  if (!code || code.length < 6) {
+    return res.status(400).json({ ok: false, error: '配对码格式不正确' });
+  }
+  const room = pairRooms.get(code);
+  const peers = [];
+  if (room) {
+    for (const [cId, p] of room) {
+      peers.push({
+        clientId: cId,
+        role: p.role,
+        deviceName: p.deviceName,
+        battery: p.battery,
+        isCharging: p.isCharging,
+        signalDbm: p.signalDbm,
+        permission: p.permission,
+        lastSeen: p.lastSeen
+      });
+    }
+  }
+  res.json({ ok: true, pairCode: code, onlineCount: peers.length, peers });
+});
+
+// 验证 6 位动态验证码并查找匹配的另一部设备 (RFC 6238 TOTP)
+app.post('/api/pair/verify_totp', (req, res) => {
+  const { code } = req.body;
+  const cleanCode = String(code || '').trim();
+  if (cleanCode.length !== 6) {
+    return res.status(400).json({ ok: false, error: '请输入 6 位动态验证码' });
+  }
+
+  // 1. 遍历当前已连入的另一部设备 B
+  for (const [, p] of clientMeta) {
+    if (p.role === 'B' && p.secretKey) {
+      if (verifyTotp(p.secretKey, cleanCode)) {
+        return res.json({
+          ok: true,
+          secretKey: p.secretKey,
+          pairCode: p.pairCode || p.secretKey,
+          deviceName: p.deviceName,
+          battery: p.battery,
+          isCharging: p.isCharging,
+          signalDbm: p.signalDbm
+        });
+      }
+    }
+  }
+
+  // 2. 遍历房间内已有对端
+  for (const [, room] of pairRooms) {
+    for (const [, p] of room) {
+      if (p.role === 'B' && p.secretKey) {
+        if (verifyTotp(p.secretKey, cleanCode)) {
+          return res.json({
+            ok: true,
+            secretKey: p.secretKey,
+            pairCode: p.pairCode || p.secretKey,
+            deviceName: p.deviceName,
+            battery: p.battery,
+            isCharging: p.isCharging,
+            signalDbm: p.signalDbm
+          });
+        }
+      }
+    }
+  }
+
+  res.status(404).json({
+    ok: false,
+    error: '未匹配到对应的另一部设备或动态码已过期，请核对另一部设备当前 30 秒动态码'
+  });
+});
+
+// 验证 16 位设置密钥并查找匹配的另一部设备 B (严格对端存在性校验)
+app.post('/api/pair/verify_secret', (req, res) => {
+  const { secretKey } = req.body;
+  const cleanKey = String(secretKey || '').toUpperCase().replace(/[^A-Z2-7]/g, '').trim();
+  if (cleanKey.length !== 16) {
+    return res.status(400).json({ ok: false, error: '请输入标准的 16 位 Base32 密钥 (A-Z, 2-7)' });
+  }
+
+  // 1. 遍历当前已连入的另一部设备 B
+  for (const [, p] of clientMeta) {
+    if (p.role === 'B' && p.secretKey && p.secretKey.toUpperCase() === cleanKey) {
+      return res.json({
+        ok: true,
+        secretKey: p.secretKey,
+        pairCode: p.pairCode || p.secretKey,
+        deviceName: p.deviceName || '另一部设备',
+        battery: p.battery,
+        isCharging: p.isCharging,
+        signalDbm: p.signalDbm
+      });
+    }
+  }
+
+  // 2. 遍历房间内已有对端
+  for (const [, room] of pairRooms) {
+    for (const [, p] of room) {
+      if (p.role === 'B' && p.secretKey && p.secretKey.toUpperCase() === cleanKey) {
+        return res.json({
+          ok: true,
+          secretKey: p.secretKey,
+          pairCode: p.pairCode || p.secretKey,
+          deviceName: p.deviceName || '另一部设备',
+          battery: p.battery,
+          isCharging: p.isCharging,
+          signalDbm: p.signalDbm
+        });
+      }
+    }
+  }
+
+  res.status(404).json({
+    ok: false,
+    error: '未匹配到对应的另一部设备，请确保另一部设备处于运行状态且密钥一致'
+  });
+});
+
 // ---------------- WebSocket 连接处理 ----------------
 wss.on('connection', (ws, req) => {
   const clientId = `client_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
   const remoteIp = req.socket.remoteAddress || '';
-  
+  socketToClient.set(ws, clientId);
+
   deviceManager.registerDevice(clientId, {
     clientType: 'unknown',
     ip: remoteIp,
@@ -265,6 +483,165 @@ wss.on('connection', (ws, req) => {
         broadcast('device:update', { devices: deviceManager.getConnectedDevices() });
       } else if (msg.type === 'ping') {
         ws.send(JSON.stringify({ event: 'pong', timestamp: Date.now() }));
+      } else if (msg.type === 'pair:verify_totp') {
+        const { code } = msg;
+        const cleanCode = String(code || '').trim();
+        let matched = null;
+        for (const [, p] of clientMeta) {
+          if (p.role === 'B' && p.secretKey && verifyTotp(p.secretKey, cleanCode)) {
+            matched = p;
+            break;
+          }
+        }
+        if (matched) {
+          ws.send(JSON.stringify({
+            event: 'pair:totp_verified',
+            data: {
+              ok: true,
+              secretKey: matched.secretKey,
+              pairCode: matched.pairCode || matched.secretKey,
+              deviceName: matched.deviceName,
+              battery: matched.battery,
+              isCharging: matched.isCharging,
+              signalDbm: matched.signalDbm
+            }
+          }));
+        } else {
+          ws.send(JSON.stringify({
+            event: 'pair:totp_verified',
+            data: { ok: false, error: '未匹配到另一部设备或动态码已过期' }
+          }));
+        }
+      } else if (msg.type === 'pair:join') {
+        // 加入配对房间
+        const { pairCode, secretKey, role, deviceName, battery, isCharging, signalDbm, permission } = msg;
+        const effectiveKey = secretKey || (role === 'B' && pairCode && pairCode.length >= 10 ? pairCode : null);
+        if (pairCode && pairCode.length >= 6) {
+          const room = getRoomClients(pairCode);
+          const peerInfo = {
+            ws,
+            clientId,
+            pairCode,
+            secretKey: effectiveKey,
+            role: role || 'A',
+            deviceName: deviceName || (role === 'B' ? '另一部设备' : '主力机'),
+            battery: battery !== undefined ? battery : null,
+            isCharging: !!isCharging,
+            signalDbm: signalDbm !== undefined ? signalDbm : null,
+            permission: permission !== undefined ? permission : null,
+            lastSeen: Date.now()
+          };
+          room.set(clientId, peerInfo);
+          clientMeta.set(clientId, peerInfo);
+
+          // 收集房间内已有其他端信息回复给当前连入者
+          const existingPeers = [];
+          for (const [cId, p] of room) {
+            if (cId !== clientId) {
+              existingPeers.push({
+                clientId: cId,
+                role: p.role,
+                deviceName: p.deviceName,
+                battery: p.battery,
+                isCharging: p.isCharging,
+                signalDbm: p.signalDbm,
+                permission: p.permission,
+                lastSeen: p.lastSeen
+              });
+            }
+          }
+
+          ws.send(JSON.stringify({
+            event: 'pair:joined',
+            data: { pairCode, peers: existingPeers, timestamp: Date.now() }
+          }));
+
+          // 向房间内其他设备广播有新成员连入/在线
+          broadcastToRoom(pairCode, 'peer:heartbeat', {
+            clientId,
+            role: peerInfo.role,
+            deviceName: peerInfo.deviceName,
+            battery: peerInfo.battery,
+            isCharging: peerInfo.isCharging,
+            signalDbm: peerInfo.signalDbm,
+            permission: peerInfo.permission,
+            lastSeen: peerInfo.lastSeen,
+            timestamp: Date.now()
+          }, ws);
+        }
+      } else if (msg.type === 'heartbeat') {
+        // 心跳包同步
+        const { pairCode, role, deviceName, battery, isCharging, signalDbm, permission } = msg;
+        if (pairCode && pairRooms.has(pairCode)) {
+          const room = pairRooms.get(pairCode);
+          if (room.has(clientId)) {
+            const cur = room.get(clientId);
+            cur.battery = battery !== undefined ? battery : cur.battery;
+            cur.isCharging = isCharging !== undefined ? isCharging : cur.isCharging;
+            cur.signalDbm = signalDbm !== undefined ? signalDbm : cur.signalDbm;
+            cur.permission = permission !== undefined ? permission : cur.permission;
+            cur.deviceName = deviceName || cur.deviceName;
+            cur.lastSeen = Date.now();
+          }
+          // 转发心跳给房间内对端
+          broadcastToRoom(pairCode, 'peer:heartbeat', {
+            role,
+            deviceName,
+            battery,
+            isCharging,
+            signalDbm,
+            permission,
+            timestamp: Date.now()
+          }, ws);
+        }
+      } else if (msg.type === 'relay:envelope') {
+        // Blind End-to-End Encrypted Relay (零解密、零存储纯盲转中继)
+        const { channelId, envelope } = msg;
+        if (channelId && envelope) {
+          broadcastToRoom(channelId, 'relay:envelope', { channelId, envelope, timestamp: Date.now() }, ws);
+        }
+      } else if (msg.type === 'notification:new') {
+        const { pairCode, data } = msg;
+        if (data) {
+          const saved = notificationStore.add(data);
+          if (pairCode) {
+            broadcastToRoom(pairCode, 'notification:new', saved, ws);
+          }
+          broadcast('notification:new', saved);
+        }
+      } else if (msg.type === 'notification:read') {
+        const { id, pairCode } = msg;
+        if (id) {
+          notificationStore.markRead(id);
+          if (pairCode) {
+            broadcastToRoom(pairCode, 'notification:read', { id }, ws);
+          }
+          broadcast('notification:read', { id });
+        }
+      } else if (msg.type === 'notification:dismiss') {
+        const { id, pairCode } = msg;
+        if (id) {
+          notificationStore.dismiss(id);
+          if (pairCode) {
+            broadcastToRoom(pairCode, 'notification:dismissed', { id }, ws);
+          }
+          broadcast('notification:dismissed', { id });
+        }
+      } else if (msg.type === 'notification:clear_all') {
+        const { pairCode } = msg;
+        notificationStore.clear();
+        if (pairCode) {
+          broadcastToRoom(pairCode, 'notification:cleared', {}, ws);
+        }
+        broadcast('notification:cleared', {});
+      } else if (msg.type === 'pair:leave') {
+        const { pairCode, role } = msg;
+        if (pairCode && pairRooms.has(pairCode)) {
+          const room = pairRooms.get(pairCode);
+          room.delete(clientId);
+          broadcastToRoom(pairCode, 'peer:left', { role, clientId, timestamp: Date.now() });
+        }
+        clientMeta.delete(clientId);
       }
     } catch (err) {
       console.error('[WS] 无法解析客户端消息:', err.message);
@@ -272,6 +649,17 @@ wss.on('connection', (ws, req) => {
   });
 
   ws.on('close', () => {
+    const meta = clientMeta.get(clientId);
+    if (meta && meta.pairCode && pairRooms.has(meta.pairCode)) {
+      const room = pairRooms.get(meta.pairCode);
+      room.delete(clientId);
+      broadcastToRoom(meta.pairCode, 'peer:left', { role: meta.role, clientId, timestamp: Date.now() });
+      if (room.size === 0) {
+        pairRooms.delete(meta.pairCode);
+      }
+    }
+    clientMeta.delete(clientId);
+    socketToClient.delete(ws);
     deviceManager.unregisterDevice(clientId);
     broadcast('device:disconnected', { clientId, count: wss.clients.size });
   });

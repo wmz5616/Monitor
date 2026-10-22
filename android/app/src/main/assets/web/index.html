@@ -10,6 +10,7 @@
   <script src="js/gsap.min.js"></script>
   <script src="js/mqtt.min.js"></script>
   <script src="js/qrious.min.js"></script>
+  <script src="js/jsqr.js"></script>
 </head>
 
 <body>
@@ -39,7 +40,7 @@
               <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
               <line x1="12" y1="18" x2="12.01" y2="18"></line>
             </svg>
-            <span style="font-size: 0.84rem; font-weight: 600;" id="boundDeviceInfo">备用机: 未连接</span>
+            <span style="font-size: 0.84rem; font-weight: 600;" id="boundDeviceInfo">另一部设备: 未连接</span>
           </div>
           <button class="btn-liquid btn-liquid-ghost btn-liquid-sm" id="btnOpenPairModal">
             配对码
@@ -59,13 +60,19 @@
         </button>
       </section>
 
-      <!-- Apple Segmented Control -->
-      <nav class="segmented-control" id="filterTabs">
-        <div class="segment-item active" data-filter="all">全部 <span id="countAll">(0)</span></div>
-        <div class="segment-item" data-filter="code">验证码 <span id="countCode">(0)</span></div>
-        <div class="segment-item" data-filter="sms">短信 <span id="countSms">(0)</span></div>
-        <div class="segment-item" data-filter="app">应用 <span id="countApp">(0)</span></div>
-      </nav>
+      <!-- Apple Segmented Control & Clear Action -->
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 8px;">
+        <nav class="segmented-control" id="filterTabs" style="margin-bottom: 0; flex: 1;">
+          <div class="segment-item active" data-filter="all">全部 <span id="countAll">(0)</span></div>
+          <div class="segment-item" data-filter="code">验证码 <span id="countCode">(0)</span></div>
+          <div class="segment-item" data-filter="sms">短信 <span id="countSms">(0)</span></div>
+          <div class="segment-item" data-filter="app">应用 <span id="countApp">(0)</span></div>
+        </nav>
+        <button class="btn-liquid btn-liquid-ghost btn-liquid-sm" id="btnClearAllNotifs" title="清空全部通知"
+          style="padding: 6px 10px; font-size: 0.76rem; color: var(--text-tertiary); white-space: nowrap;">
+          清空
+        </button>
+      </div>
 
       <!-- Notification Feed List -->
       <section class="feed-container" id="feedContainer">
@@ -86,32 +93,39 @@
     </main>
 
     <!-- ============================================================ -->
-    <!-- TAB 2: 验证码中心 (Verification Codes Only)                    -->
+    <!-- TAB 2: 已连接过的设备列表 (Connected Devices List)             -->
     <!-- ============================================================ -->
     <main id="tabCodes" class="tab-pane" style="display: none;">
 
-      <div class="liquid-card" style="padding: 14px 16px; margin-bottom: 12px;">
-        <div style="font-size: 0.95rem; font-weight: 700; color: var(--text-primary);">
-          验证码中心
+      <div class="liquid-card"
+        style="padding: 14px 16px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <div
+            style="font-size: 0.95rem; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
+            <span>已连接设备</span>
+            <span class="device-count-pill" id="deviceListCountPill">0台</span>
+          </div>
         </div>
-        <div style="font-size: 0.76rem; color: var(--text-tertiary); margin-top: 2px;">
-          提取自备用机截获的全部短信及应用验证码
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <button class="btn-liquid btn-liquid-ghost btn-liquid-xs" id="btnClearDeviceHistory" title="清空历史设备"
+            style="font-size: 0.74rem; padding: 4px 10px;">
+            清空列表
+          </button>
         </div>
       </div>
 
-      <!-- Codes Stream -->
-      <section id="codesVaultContainer">
+      <!-- Connected Devices Stream Container -->
+      <section id="deviceListContainer">
         <!-- Rendered dynamically -->
       </section>
 
-      <div class="empty-state" id="emptyCodesState" style="display: none;">
+      <div class="empty-state" id="emptyDeviceListState" style="display: none;">
         <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="rgba(0,0,0,0.18)" stroke-width="1.6"
           stroke-linecap="round" stroke-linejoin="round" style="margin: 0 auto;">
-          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-          <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+          <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
+          <line x1="12" y1="18" x2="12.01" y2="18"></line>
         </svg>
-        <div class="empty-state-title">暂无验证码</div>
-        <div class="empty-state-sub">收到验证码短信后将自动提取并置顶于此</div>
+        <div class="empty-state-title">暂无连接记录</div>
       </div>
 
     </main>
@@ -121,60 +135,205 @@
     <!-- ============================================================ -->
     <main id="tabPair" class="tab-pane" style="display: none;">
 
-      <!-- Pairing Section Card -->
-      <section class="liquid-card" style="text-align: center;">
-        <div style="font-size: 0.84rem; font-weight: 600; color: var(--apple-blue);">
-          配对码
+      <!-- Mode B: 另一部设备端显示 TOTP 动态码与二维码 -->
+      <section class="liquid-card" id="pairSectionModeB" style="text-align: center; display: none; padding: 22px 20px 24px;">
+        <!-- Header: 动态码 on Left, Countdown Ring on Right -->
+        <div class="pair-card-header">
+          <div class="pair-card-title">
+            动态码
+          </div>
+          <!-- Circular Countdown Ring in Header for perfect centering below -->
+          <div class="totp-ring-wrapper" title="动态码刷新倒计时">
+            <svg class="totp-ring-svg" viewBox="0 0 36 36">
+              <circle class="totp-ring-bg" cx="18" cy="18" r="14"></circle>
+              <circle class="totp-ring-prog" id="totpRingProgB" cx="18" cy="18" r="14"></circle>
+            </svg>
+            <span class="totp-sec-label" id="totpSecLabelB">30</span>
+          </div>
         </div>
 
-        <!-- 6 Digits -->
-        <div class="pairing-code-box" id="pairDigitsBox">
-          <div class="pair-digit">-</div>
-          <div class="pair-digit">-</div>
-          <div class="pair-digit">-</div>
-          <div class="pair-divider">·</div>
-          <div class="pair-digit">-</div>
-          <div class="pair-digit">-</div>
-          <div class="pair-digit">-</div>
+        <div class="totp-container" style="margin: 4px 0 10px;">
+          <!-- 6 Digits Rolling Boxes: Perfectly Centered! -->
+          <div class="pairing-code-box" id="pairDigitsBox">
+            <div class="pair-digit" id="totpB1">-</div>
+            <div class="pair-digit" id="totpB2">-</div>
+            <div class="pair-digit" id="totpB3">-</div>
+            <div class="pair-divider">·</div>
+            <div class="pair-digit" id="totpB4">-</div>
+            <div class="pair-digit" id="totpB5">-</div>
+            <div class="pair-digit" id="totpB6">-</div>
+          </div>
+
+          <div class="pair-subtitle">
+            在另一部设备扫码或输入以完成配对
+          </div>
         </div>
 
-        <div style="font-size: 0.76rem; color: var(--text-tertiary); margin-bottom: 8px;">
-          在主力机输入此 6 位码完成绑定
-        </div>
-
-        <!-- QR Code Frame -->
+        <!-- QR Code Frame (Encodes otpauth URI) -->
         <div class="qr-frame" id="qrContainer">
           <canvas id="qrCanvas"></canvas>
         </div>
 
-        <div style="display: flex; gap: 8px; justify-content: center; margin-top: 10px;">
-          <button class="btn-liquid btn-liquid-ghost btn-liquid-sm" id="btnRegenPairCode">
-            刷新配对码
-          </button>
-          <button class="btn-liquid btn-liquid-primary btn-liquid-sm" id="btnCopyPairCode">
-            复制 6 位码
+        <!-- Real-time Status Capsule -->
+        <div class="pair-status-capsule" id="pairStatusModeB">
+          <span class="status-dot offline"></span>
+          <span>等待设备连接</span>
+        </div>
+
+        <!-- Setup Key (16-character Base32 · 20分钟自动刷新) -->
+        <div class="totp-secret-box" id="totpSecretBoxB">
+          <div class="totp-secret-title">密钥</div>
+          <div class="totp-secret-text" id="totpSecretTextB">---- ---- ---- ----</div>
+          <div class="totp-expire-hint" id="totpSecretExpireHint">
+            密钥有效期剩余: 20分00秒 · 自动刷新
+          </div>
+          <div class="totp-secret-actions">
+            <button class="btn-liquid btn-liquid-ghost btn-liquid-sm" id="btnCopySecretKey">
+              复制密钥
+            </button>
+            <button class="btn-liquid btn-liquid-ghost btn-liquid-sm" id="btnResetSecretKey">
+              重置密钥
+            </button>
+          </div>
+        </div>
+
+        <div class="pair-bottom-action">
+          <button class="btn-liquid btn-liquid-primary btn-liquid-block" id="btnCopyPairCode">
+            复制当前 6 位动态码
           </button>
         </div>
       </section>
 
-      <!-- Primary Device Mode Action Card in Pair Tab -->
-      <section class="liquid-card" id="pairTabModeACard" style="display: none;">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <div>
-            <div style="font-size: 0.88rem; font-weight: 700; color: var(--text-primary);">
-              绑定备用机
-            </div>
-            <div style="font-size: 0.76rem; color: var(--text-secondary); margin-top: 2px;" id="pairTabBoundStatus">
-              输入备用机 6 位码完成同步绑定
+      <!-- Mode A: 主力机端显示输入另一部设备配对码或查看已绑定的另一部设备 -->
+      <div id="pairSectionModeA" style="display: none;">
+        <!-- 未绑定另一部设备时的输入卡片 -->
+        <section class="liquid-card" id="pairModeAUnbound">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+            <div style="font-size: 0.96rem; font-weight: 700; color: var(--text-primary);">
+              绑定另一部设备
             </div>
           </div>
-          <button class="btn-liquid btn-liquid-primary btn-liquid-sm" id="btnOpenPairModalFromTab">
-            输入配对码
-          </button>
-        </div>
-      </section>
+          <p style="font-size: 0.78rem; color: var(--text-secondary); margin-bottom: 12px;" id="pairInputTipText">
+            推荐使用相机扫码绑定，或输入 6 位动态码 / 16 位设置密钥
+          </p>
 
+          <!-- 📷 扫码直接绑定 (最推荐 · 0输入 · 0碰撞) -->
+          <div style="margin-bottom: 14px;">
+            <button class="btn-liquid btn-liquid-primary btn-liquid-block" id="btnStartQrScan"
+              style="display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 600; padding: 11px 16px; font-size: 0.92rem; box-shadow: 0 4px 14px rgba(0, 122, 255, 0.28);">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="7" height="7"></rect>
+                <rect x="14" y="3" width="7" height="7"></rect>
+                <rect x="14" y="14" width="7" height="7"></rect>
+                <rect x="3" y="14" width="7" height="7"></rect>
+                <line x1="7" y1="17" x2="7" y2="17.01"></line>
+                <line x1="17" y1="7" x2="17" y2="7.01"></line>
+              </svg>
+              <span>扫码直接绑定</span>
+            </button>
+          </div>
 
+          <!-- 6-digit TOTP input view -->
+          <div id="viewInput6Digits">
+            <div class="pair-input-group" style="margin-bottom: 14px;">
+              <input type="tel" maxlength="1" class="pair-digit-input" id="tabDigit1" autofocus autocomplete="off">
+              <input type="tel" maxlength="1" class="pair-digit-input" id="tabDigit2" autocomplete="off">
+              <input type="tel" maxlength="1" class="pair-digit-input" id="tabDigit3" autocomplete="off">
+              <input type="tel" maxlength="1" class="pair-digit-input" id="tabDigit4" autocomplete="off">
+              <input type="tel" maxlength="1" class="pair-digit-input" id="tabDigit5" autocomplete="off">
+              <input type="tel" maxlength="1" class="pair-digit-input" id="tabDigit6" autocomplete="off">
+            </div>
+
+            <div style="display: flex; gap: 8px;">
+              <button class="btn-liquid btn-liquid-ghost btn-liquid-block" id="btnPastePairCodeTab">
+                粘贴剪贴板
+              </button>
+              <button class="btn-liquid btn-liquid-primary btn-liquid-block" id="btnConfirmPairTab">
+                确认绑定
+              </button>
+            </div>
+
+            <div style="text-align: center; margin-top: 10px;">
+              <span class="totp-mode-toggle-link" id="btnToggleSecretInput">改用 16 位密钥手动绑定</span>
+            </div>
+          </div>
+
+          <!-- 16-character Secret Key direct input view -->
+          <div id="viewInputSecretKey" style="display: none;">
+            <div style="margin-bottom: 14px;">
+              <input type="text" id="inputSecretKeyTab"
+                style="width: 100%; height: 48px; border-radius: var(--radius-sm); border: 1.5px solid rgba(0,0,0,0.1); padding: 0 12px; font-family: monospace; font-size: 1.05rem; font-weight: 700; text-transform: uppercase; text-align: center; color: var(--apple-blue); outline: none;">
+            </div>
+
+            <div style="display: flex; gap: 8px;">
+              <button class="btn-liquid btn-liquid-ghost btn-liquid-block" id="btnPasteSecretKeyTab">
+                粘贴密钥
+              </button>
+              <button class="btn-liquid btn-liquid-primary btn-liquid-block" id="btnConfirmSecretKeyTab">
+                绑定密钥
+              </button>
+            </div>
+
+            <div style="text-align: center; margin-top: 10px;">
+              <span class="totp-mode-toggle-link" id="btnToggleDigitInput">改用 6 位动态码绑定</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- 已绑定另一部设备时的信息展示卡片 -->
+        <section class="liquid-card" id="pairModeABound" style="display: none;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <div style="font-size: 0.88rem; font-weight: 700; color: var(--text-primary);">
+              已绑定的另一部设备
+            </div>
+            <div class="status-pill" id="pairBoundStatusPill">
+              <div class="status-dot offline" id="pairBoundStatusDot"></div>
+              <span id="pairBoundStatusText">未连接</span>
+            </div>
+          </div>
+
+          <div class="totp-container" style="padding: 6px 0 10px;">
+            <div style="font-size: 0.76rem; color: var(--text-tertiary);">同步动态码</div>
+
+            <div class="totp-digits-row">
+              <div
+                style="font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', monospace; font-size: 2.1rem; font-weight: 800; letter-spacing: 0.12em; color: var(--apple-blue); margin: 4px 0;"
+                id="pairBoundCodeDisplay">
+                --- ---
+              </div>
+
+              <!-- Synchronized Circular Countdown Ring -->
+              <div class="totp-ring-wrapper" title="动态码刷新倒计时">
+                <svg class="totp-ring-svg" viewBox="0 0 36 36">
+                  <circle class="totp-ring-bg" cx="18" cy="18" r="14"></circle>
+                  <circle class="totp-ring-prog" id="totpRingProgA" cx="18" cy="18" r="14"></circle>
+                </svg>
+                <span class="totp-sec-label" id="totpSecLabelA">30</span>
+              </div>
+            </div>
+
+            <div style="font-size: 0.8rem; color: var(--text-secondary);" id="pairBoundDeviceName">
+              另一部设备
+            </div>
+          </div>
+
+          <!-- Bound Secret Key display -->
+          <div class="totp-secret-box" id="totpSecretBoxA" style="margin-top: 6px;">
+            <div class="totp-secret-title">已同步加密密钥</div>
+            <div class="totp-secret-text" id="totpSecretTextA" style="font-size: 0.95rem;">---- ---- ---- ----</div>
+          </div>
+
+          <div style="display: flex; gap: 8px; margin-top: 10px;">
+            <button class="btn-liquid btn-liquid-ghost btn-liquid-sm btn-liquid-block" id="btnChangeBoundCode">
+              更换配对 / 重新输入
+            </button>
+            <button class="btn-liquid btn-liquid-danger btn-liquid-sm btn-liquid-block" id="btnUnbindFromTab">
+              解除绑定
+            </button>
+          </div>
+        </section>
+      </div>
 
     </main>
 
@@ -224,7 +383,8 @@
           <div class="dual-device-header">
             <div style="display: flex; align-items: center; gap: 6px;">
               <span class="role-tag role-tag-a">A端</span>
-              <span style="font-size: 0.86rem; font-weight: 700; color: var(--text-primary);" id="deviceTitleA">--</span>
+              <span style="font-size: 0.86rem; font-weight: 700; color: var(--text-primary);"
+                id="deviceTitleA">--</span>
               <span class="local-tag" id="tagLocalA" style="display: none;">本机</span>
             </div>
             <div class="perm-status-val" id="permAVal">
@@ -259,7 +419,8 @@
           <div class="dual-device-header">
             <div style="display: flex; align-items: center; gap: 6px;">
               <span class="role-tag role-tag-b">B端</span>
-              <span style="font-size: 0.86rem; font-weight: 700; color: var(--text-primary);" id="deviceTitleB">--</span>
+              <span style="font-size: 0.86rem; font-weight: 700; color: var(--text-primary);"
+                id="deviceTitleB">--</span>
               <span class="local-tag" id="tagLocalB" style="display: none;">本机</span>
             </div>
             <div class="perm-status-val" id="permBVal">
@@ -305,17 +466,18 @@
           <div class="cell-label">软件版本</div>
           <div class="cell-value">v1.2.0</div>
         </div>
-        <div class="apple-cell" style="border-bottom: none;">
-          <div class="cell-label" style="color: var(--apple-red); font-weight: 600;">断开当前连接</div>
-          <button class="btn-liquid btn-liquid-danger btn-liquid-sm" id="btnDisconnect">
-            断开
-          </button>
+        <div class="apple-cell" id="rowDisconnect" style="border-bottom: none;">
+          <div class="cell-label" id="lblDisconnect" style="color: var(--text-secondary); font-weight: 500;">当前连接</div>
+          <div id="disconnectActionContainer" style="display: flex; align-items: center;">
+            <span id="textDisconnectStatus"
+              style="font-size: 0.86rem; color: var(--text-tertiary); font-weight: 500;">未连接</span>
+            <button class="btn-liquid btn-liquid-danger btn-liquid-sm" id="btnDisconnect" style="display: none;">
+              断开
+            </button>
+          </div>
         </div>
       </section>
 
-      <div class="footer-note">
-        备用机截获通知后将自动同步至主力机
-      </div>
 
     </main>
 
@@ -339,14 +501,15 @@
       <span>通知</span>
     </a>
 
-    <!-- Tab 2: 验证码 (Files) -->
+    <!-- Tab 2: 设备 (Devices) -->
     <a href="javascript:void(0)" data-tab="tabCodes">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-6">
-        <path
-          d="M19.5 21a3 3 0 0 0 3-3v-4.5a3 3 0 0 0-3-3h-15a3 3 0 0 0-3 3V18a3 3 0 0 0 3 3h15ZM1.5 10.146V6a3 3 0 0 1 3-3h5.379a2.25 2.25 0 0 1 1.59.659l2.122 2.121c.14.141.331.22.53.22H19.5a3 3 0 0 1 3 3v1.146A4.483 4.483 0 0 0 19.5 9h-15a4.483 4.483 0 0 0-3 1.146Z">
-        </path>
+        <path d="M10.5 18.75a.75.75 0 0 0 0 1.5h3a.75.75 0 0 0 0-1.5h-3Z" />
+        <path fill-rule="evenodd"
+          d="M6.75 2.25A2.25 2.25 0 0 0 4.5 4.5v15a2.25 2.25 0 0 0 2.25 2.25h10.5A2.25 2.25 0 0 0 19.5 19.5V4.5a2.25 2.25 0 0 0-2.25-2.25H6.75Zm.75 2.25h9a.75.75 0 0 1 .75.75v13.5a.75.75 0 0 1-.75.75h-9a.75.75 0 0 1-.75-.75V5.25a.75.75 0 0 1 .75-.75Z"
+          clip-rule="evenodd" />
       </svg>
-      <span>验证码</span>
+      <span>设备</span>
     </a>
 
     <!-- Tab 3: 配对 (Plans) -->
@@ -379,7 +542,7 @@
   <div class="modal-overlay" id="roleSelectModal">
     <div class="modal-content">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
-        <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--text-primary); margin: 0;">切换当前模式</h3>
+        <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--text-primary); margin: 0;">切换模式</h3>
         <button class="btn-liquid btn-liquid-ghost btn-liquid-sm" id="btnCloseRoleModal" style="padding: 2px 8px;">
           取消
         </button>
@@ -402,7 +565,7 @@
           </svg>
         </div>
         <div class="role-desc">
-          随身使用，同步查看备用机短信及通知，提取验证码。
+          适用于便携设备
         </div>
       </div>
 
@@ -424,7 +587,7 @@
           </svg>
         </div>
         <div class="role-desc">
-          放置备用，截获短信通知并同步至主力机。
+          适用于长期静置设备
         </div>
       </div>
     </div>
@@ -436,17 +599,36 @@
   <div class="modal-overlay" id="pairInputModal">
     <div class="modal-content">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-        <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--text-primary);">输入配对码</h3>
+        <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--text-primary);">绑定另一部设备</h3>
         <button class="btn-liquid btn-liquid-ghost btn-liquid-sm" id="btnClosePairModal" style="padding: 2px 8px;">
           取消
         </button>
       </div>
 
-      <p style="font-size: 0.78rem; color: var(--text-secondary);">
-        输入备用机显示的 6 位配对码：
-      </p>
+      <!-- 📷 扫码直接绑定 (最推荐 · 0输入 · 0碰撞) -->
+      <div style="margin-bottom: 12px;">
+        <button class="btn-liquid btn-liquid-primary btn-liquid-block" id="btnStartQrScanModal"
+          style="display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 600; padding: 10px 14px; font-size: 0.9rem; box-shadow: 0 4px 14px rgba(0, 122, 255, 0.28);">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="7" height="7"></rect>
+            <rect x="14" y="3" width="7" height="7"></rect>
+            <rect x="14" y="14" width="7" height="7"></rect>
+            <rect x="3" y="14" width="7" height="7"></rect>
+            <line x1="7" y1="17" x2="7" y2="17.01"></line>
+            <line x1="17" y1="7" x2="17" y2="7.01"></line>
+          </svg>
+          <span>扫码直接绑定</span>
+        </button>
+      </div>
 
-      <div class="pair-input-group">
+      <div style="display: flex; align-items: center; margin: 10px 0; color: var(--text-tertiary); font-size: 0.72rem;">
+        <div style="flex: 1; height: 1px; background: rgba(0,0,0,0.08);"></div>
+        <span style="padding: 0 8px;">或输入 6 位动态验证码</span>
+        <div style="flex: 1; height: 1px; background: rgba(0,0,0,0.08);"></div>
+      </div>
+
+      <div class="pair-input-group" style="margin-bottom: 14px;">
         <input type="tel" maxlength="1" class="pair-digit-input" id="digit1" autofocus autocomplete="off">
         <input type="tel" maxlength="1" class="pair-digit-input" id="digit2" autocomplete="off">
         <input type="tel" maxlength="1" class="pair-digit-input" id="digit3" autocomplete="off">
@@ -457,11 +639,73 @@
 
       <div style="display: flex; gap: 8px;">
         <button class="btn-liquid btn-liquid-ghost btn-liquid-block" id="btnPastePairCode">
-          粘贴
+          粘贴剪贴板
         </button>
         <button class="btn-liquid btn-liquid-primary btn-liquid-block" id="btnConfirmPair">
-          绑定
+          立即绑定
         </button>
+      </div>
+
+      <div style="text-align: center; margin-top: 10px;">
+        <span class="totp-mode-toggle-link" id="btnModalGoTabPair">前往配对中心高级设置</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- MODAL: 相机扫码绑定 (Mode A Camera QR Scanner)               -->
+  <!-- ============================================================ -->
+  <div class="modal-overlay" id="qrScanModal">
+    <div class="modal-content qr-scanner-modal-content">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#007aff" stroke-width="2.2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+            <circle cx="12" cy="13" r="4"></circle>
+          </svg>
+          <h3 style="font-size: 1.02rem; font-weight: 700; color: var(--text-primary); margin: 0;">对准另一部设备二维码</h3>
+        </div>
+        <button class="btn-liquid btn-liquid-ghost btn-liquid-sm" id="btnCloseQrScanModal" style="padding: 3px 10px;">
+          关闭
+        </button>
+      </div>
+
+      <!-- Viewfinder Container -->
+      <div class="scanner-viewfinder-container">
+        <video id="qrScannerVideo" playsinline autoplay muted webkit-playsinline></video>
+        <canvas id="qrScannerCanvas" style="display: none;"></canvas>
+
+        <!-- Viewfinder Overlay Box & Corners -->
+        <div class="scanner-reticle">
+          <div class="scanner-reticle-corner tl"></div>
+          <div class="scanner-reticle-corner tr"></div>
+          <div class="scanner-reticle-corner bl"></div>
+          <div class="scanner-reticle-corner br"></div>
+          <div class="scanner-laser-line"></div>
+        </div>
+
+        <!-- Camera Status Indicator -->
+        <div class="scanner-status-badge" id="scannerStatusBadge">
+          <span class="status-dot"></span>
+          <span id="scannerStatusText">正在寻向对焦...</span>
+        </div>
+      </div>
+
+      <p style="font-size: 0.76rem; color: var(--text-secondary); text-align: center; margin: 10px 0 12px;"
+        id="scannerTipText">
+        将取景框对准另一部设备“配对中心”展示的二维码即可自动绑定
+      </p>
+
+      <div style="display: flex; gap: 8px; justify-content: center;">
+        <button class="btn-liquid btn-liquid-ghost btn-liquid-sm" id="btnSwitchCamera" style="display: none;">
+          切换镜头
+        </button>
+        <label class="btn-liquid btn-liquid-ghost btn-liquid-sm"
+          style="cursor: pointer; margin: 0; display: inline-flex; align-items: center; gap: 4px;">
+          <span>从相册选取</span>
+          <input type="file" id="inputQrImageFile" accept="image/*" style="display: none;">
+        </label>
       </div>
     </div>
   </div>

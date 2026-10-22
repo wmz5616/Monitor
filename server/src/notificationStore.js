@@ -17,26 +17,14 @@ class NotificationStore {
   }
 
   load() {
-    try {
-      if (fs.existsSync(this.storageFile)) {
-        const raw = fs.readFileSync(this.storageFile, 'utf8');
-        this.notifications = JSON.parse(raw);
-      }
-    } catch (err) {
-      console.error('[NotificationStore] 加载历史通知失败, 初始化为空:', err.message);
-      this.notifications = [];
-    }
+    // 纯内存模型，零数据库、零磁盘文件存储，保护用户隐私
+    this.notifications = [];
   }
 
   save() {
-    try {
-      // 保持最近 200 条，避免无限增长
-      if (this.notifications.length > 200) {
-        this.notifications = this.notifications.slice(0, 200);
-      }
-      fs.writeFileSync(this.storageFile, JSON.stringify(this.notifications, null, 2), 'utf8');
-    } catch (err) {
-      console.error('[NotificationStore] 保存通知失败:', err.message);
+    // 纯内存模型，不向磁盘写入任何用户数据与通知记录
+    if (this.notifications.length > 50) {
+      this.notifications = this.notifications.slice(0, 50);
     }
   }
 

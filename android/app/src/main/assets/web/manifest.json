@@ -1,0 +1,21 @@
+{
+  "name": "LinkNotify 通知与任务协同",
+  "short_name": "LinkNotify",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0d14",
+  "theme_color": "#0a0d14",
+  "description": "跨设备通知共享与终端代码任务监控看板",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

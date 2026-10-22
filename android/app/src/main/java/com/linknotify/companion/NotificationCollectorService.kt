@@ -94,7 +94,7 @@ class NotificationCollectorService : NotificationListenerService() {
         val role = sp.getString("role", "B") ?: "B"
         val pairCode = sp.getString("pair_code", "") ?: ""
 
-        // 备用机角色且已生成/配置配对码时，自动跨网广播
+        // 另一部设备角色且已生成/配置配对码时，自动跨网广播
         if (role == "B" && pairCode.length >= 6) {
             MqttDispatcher.dispatch(this, pairCode, payloadStr)
         }

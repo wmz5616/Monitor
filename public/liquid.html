@@ -39,7 +39,7 @@
               <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
               <line x1="12" y1="18" x2="12.01" y2="18"></line>
             </svg>
-            <span style="font-size: 0.84rem; font-weight: 600;" id="boundDeviceInfo">备用机: 未连接</span>
+            <span style="font-size: 0.84rem; font-weight: 600;" id="boundDeviceInfo">另一部设备: 未连接</span>
           </div>
           <button class="btn-liquid btn-liquid-ghost btn-liquid-sm" id="btnOpenPairModal">
             配对码
@@ -86,32 +86,39 @@
     </main>
 
     <!-- ============================================================ -->
-    <!-- TAB 2: 验证码中心 (Verification Codes Only)                    -->
+    <!-- TAB 2: 已连接过的设备列表 (Connected Devices List)             -->
     <!-- ============================================================ -->
     <main id="tabCodes" class="tab-pane" style="display: none;">
 
-      <div class="liquid-card" style="padding: 14px 16px; margin-bottom: 12px;">
-        <div style="font-size: 0.95rem; font-weight: 700; color: var(--text-primary);">
-          验证码中心
+      <div class="liquid-card"
+        style="padding: 14px 16px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <div
+            style="font-size: 0.95rem; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
+            <span>已连接设备</span>
+            <span class="device-count-pill" id="deviceListCountPill">0台</span>
+          </div>
         </div>
-        <div style="font-size: 0.76rem; color: var(--text-tertiary); margin-top: 2px;">
-          提取自备用机截获的全部短信及应用验证码
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <button class="btn-liquid btn-liquid-ghost btn-liquid-xs" id="btnClearDeviceHistory" title="清空历史设备"
+            style="font-size: 0.74rem; padding: 4px 10px;">
+            清空列表
+          </button>
         </div>
       </div>
 
-      <!-- Codes Stream -->
-      <section id="codesVaultContainer">
+      <!-- Connected Devices Stream Container -->
+      <section id="deviceListContainer">
         <!-- Rendered dynamically -->
       </section>
 
-      <div class="empty-state" id="emptyCodesState" style="display: none;">
+      <div class="empty-state" id="emptyDeviceListState" style="display: none;">
         <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="rgba(0,0,0,0.18)" stroke-width="1.6"
           stroke-linecap="round" stroke-linejoin="round" style="margin: 0 auto;">
-          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-          <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+          <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
+          <line x1="12" y1="18" x2="12.01" y2="18"></line>
         </svg>
-        <div class="empty-state-title">暂无验证码</div>
-        <div class="empty-state-sub">收到验证码短信后将自动提取并置顶于此</div>
+        <div class="empty-state-title">暂无连接记录</div>
       </div>
 
     </main>
@@ -162,10 +169,10 @@
         <div style="display: flex; justify-content: space-between; align-items: center;">
           <div>
             <div style="font-size: 0.88rem; font-weight: 700; color: var(--text-primary);">
-              绑定备用机
+              绑定另一部设备
             </div>
             <div style="font-size: 0.76rem; color: var(--text-secondary); margin-top: 2px;" id="pairTabBoundStatus">
-              输入备用机 6 位码完成同步绑定
+              输入另一部设备 6 位码完成同步绑定
             </div>
           </div>
           <button class="btn-liquid btn-liquid-primary btn-liquid-sm" id="btnOpenPairModalFromTab">
@@ -224,7 +231,8 @@
           <div class="dual-device-header">
             <div style="display: flex; align-items: center; gap: 6px;">
               <span class="role-tag role-tag-a">A端</span>
-              <span style="font-size: 0.86rem; font-weight: 700; color: var(--text-primary);" id="deviceTitleA">--</span>
+              <span style="font-size: 0.86rem; font-weight: 700; color: var(--text-primary);"
+                id="deviceTitleA">--</span>
               <span class="local-tag" id="tagLocalA" style="display: none;">本机</span>
             </div>
             <div class="perm-status-val" id="permAVal">
@@ -259,7 +267,8 @@
           <div class="dual-device-header">
             <div style="display: flex; align-items: center; gap: 6px;">
               <span class="role-tag role-tag-b">B端</span>
-              <span style="font-size: 0.86rem; font-weight: 700; color: var(--text-primary);" id="deviceTitleB">--</span>
+              <span style="font-size: 0.86rem; font-weight: 700; color: var(--text-primary);"
+                id="deviceTitleB">--</span>
               <span class="local-tag" id="tagLocalB" style="display: none;">本机</span>
             </div>
             <div class="perm-status-val" id="permBVal">
@@ -313,9 +322,6 @@
         </div>
       </section>
 
-      <div class="footer-note">
-        备用机截获通知后将自动同步至主力机
-      </div>
 
     </main>
 
@@ -339,14 +345,15 @@
       <span>通知</span>
     </a>
 
-    <!-- Tab 2: 验证码 (Files) -->
+    <!-- Tab 2: 设备 (Devices) -->
     <a href="javascript:void(0)" data-tab="tabCodes">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-6">
-        <path
-          d="M19.5 21a3 3 0 0 0 3-3v-4.5a3 3 0 0 0-3-3h-15a3 3 0 0 0-3 3V18a3 3 0 0 0 3 3h15ZM1.5 10.146V6a3 3 0 0 1 3-3h5.379a2.25 2.25 0 0 1 1.59.659l2.122 2.121c.14.141.331.22.53.22H19.5a3 3 0 0 1 3 3v1.146A4.483 4.483 0 0 0 19.5 9h-15a4.483 4.483 0 0 0-3 1.146Z">
-        </path>
+        <path d="M10.5 18.75a.75.75 0 0 0 0 1.5h3a.75.75 0 0 0 0-1.5h-3Z" />
+        <path fill-rule="evenodd"
+          d="M6.75 2.25A2.25 2.25 0 0 0 4.5 4.5v15a2.25 2.25 0 0 0 2.25 2.25h10.5A2.25 2.25 0 0 0 19.5 19.5V4.5a2.25 2.25 0 0 0-2.25-2.25H6.75Zm.75 2.25h9a.75.75 0 0 1 .75.75v13.5a.75.75 0 0 1-.75.75h-9a.75.75 0 0 1-.75-.75V5.25a.75.75 0 0 1 .75-.75Z"
+          clip-rule="evenodd" />
       </svg>
-      <span>验证码</span>
+      <span>设备</span>
     </a>
 
     <!-- Tab 3: 配对 (Plans) -->
@@ -379,7 +386,7 @@
   <div class="modal-overlay" id="roleSelectModal">
     <div class="modal-content">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
-        <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--text-primary); margin: 0;">切换当前模式</h3>
+        <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--text-primary); margin: 0;">切换模式</h3>
         <button class="btn-liquid btn-liquid-ghost btn-liquid-sm" id="btnCloseRoleModal" style="padding: 2px 8px;">
           取消
         </button>
@@ -402,7 +409,7 @@
           </svg>
         </div>
         <div class="role-desc">
-          随身使用，同步查看备用机短信及通知，提取验证码。
+          适用于便携设备
         </div>
       </div>
 
@@ -424,7 +431,7 @@
           </svg>
         </div>
         <div class="role-desc">
-          放置备用，截获短信通知并同步至主力机。
+          适用于长期静置设备
         </div>
       </div>
     </div>
@@ -443,7 +450,7 @@
       </div>
 
       <p style="font-size: 0.78rem; color: var(--text-secondary);">
-        输入备用机显示的 6 位配对码：
+        输入另一部设备显示的 6 位配对码：
       </p>
 
       <div class="pair-input-group">
