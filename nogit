@@ -1,0 +1,58 @@
+# ==========================================
+# nogit 文件 (Git 忽略规则与过滤规范)
+# 对应标准的 .gitignore
+# ==========================================
+
+# --- Node.js & Web & Server ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+dist/
+out/
+
+# --- Android & Gradle ---
+*.iml
+.gradle/
+local.properties
+.idea/
+build/
+*/build/
+app/build/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.ap_
+*.aab
+*.dex
+*.class
+
+# Signing keys
+*.jks
+*.keystore
+
+# --- Environment & Sensitive Variables ---
+.env
+.env.local
+.env.*.local
+*.private.key
+*.pem
+
+# --- Editors & IDEs ---
+.vscode/
+*.swp
+*.swo
+
+# --- Operating System Files ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Logs & Temp ---
+logs/
+*.log
+tmp/
+temp/
+*.tmp

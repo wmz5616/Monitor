@@ -1,0 +1,67 @@
+# ==========================================
+# Git Ignore Rules (nogit)
+# ==========================================
+
+# --- Node.js & Web & Server ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+dist/
+out/
+package-lock.json.backup
+
+# --- Android & Gradle ---
+*.iml
+.gradle/
+local.properties
+**/local.properties
+.idea/
+.idea/caches
+.idea/libraries
+.idea/modules.xml
+.idea/workspace.xml
+.idea/navEditor.xml
+.idea/assetWizardSettings.xml
+build/
+*/build/
+app/build/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.ap_
+*.aab
+*.dex
+*.class
+
+# Signing keys
+*.jks
+*.keystore
+
+# --- Environment & Sensitive Variables ---
+.env
+.env.local
+.env.*.local
+*.private.key
+*.pem
+
+# --- Editors & IDEs ---
+.vscode/
+*.swp
+*.swo
+*~
+
+# --- Operating System Files ---
+.DS_Store
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# --- Logs & Temp ---
+logs/
+*.log
+tmp/
+temp/
+*.tmp
