@@ -1,0 +1,26 @@
+{
+  "name": "server",
+  "version": "1.0.0",
+  "main": "src/electron-main.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "desktop": "electron src/electron-main.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^5.3.0",
+    "gsap": "^3.15.0",
+    "mqtt": "^5.16.1",
+    "qrcode": "^1.5.4",
+    "qrious": "^4.0.2",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "electron": "^28.3.3"
+  }
+}
