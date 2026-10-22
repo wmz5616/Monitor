@@ -11,6 +11,7 @@ pnpm-debug.log*
 dist/
 out/
 package-lock.json.backup
+gsap-skills/
 
 # --- Android & Gradle ---
 *.iml

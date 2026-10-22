@@ -11,6 +11,7 @@ yarn-error.log*
 pnpm-debug.log*
 dist/
 out/
+gsap-skills/
 
 # --- Android & Gradle ---
 *.iml
